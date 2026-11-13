@@ -1,8 +1,24 @@
 name: code-sanitation
 on:
-  push:
-    branches: ["dev/**"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Project to scan"
+        type: choice
+        required: true
+        options:
+          - k8s-springboot-react-lab
+          - three-tier-devops-gcp
+      ref:
+        description: "Branch or tag to scan"
+        required: true
+        default: main
+      release:
+        description: "Release name for the report (e.g. v2.15.0)"
+        required: true
+
+env:
+  OWNER: ${{ github.repository_owner }}
 
 jobs:
   # 1. Code scan (OWASP Top 10)
@@ -11,6 +27,10 @@ jobs:
     container: semgrep/semgrep
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OWNER }}/${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SCAN_READ_TOKEN }}
       - name: Semgrep scan
         run: semgrep scan --config p/owasp-top-ten --json --output semgrep.json
       - uses: actions/upload-artifact@v4
@@ -23,6 +43,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OWNER }}/${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SCAN_READ_TOKEN }}
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -43,8 +67,8 @@ jobs:
     env:
       DD_URL: ${{ secrets.DD_URL }}
       DD_TOKEN: ${{ secrets.DD_TOKEN }}
-      PRODUCT: ${{ github.event.repository.name }}
-      BRANCH: ${{ github.ref_name }}
+      PRODUCT: ${{ inputs.repo }}
+      RELEASE: ${{ inputs.release }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -59,13 +83,13 @@ jobs:
               -H "Authorization: Token $DD_TOKEN" \
               -F "scan_type=$1" -F "file=@$2" -F "test_title=$3" \
               -F "product_type_name=WealthUpp" -F "product_name=$PRODUCT" \
-              -F "engagement_name=$BRANCH" \
+              -F "engagement_name=$RELEASE" \
               -F "auto_create_context=true" -F "close_old_findings=true"
           }
           upload "Semgrep JSON Report" semgrep.json Semgrep
           upload "Trivy Scan" trivy.json Trivy
 
-  # 4. Release gate: block if any Critical or High
+  # 4. Release check: Critical or High found?
   gate:
     needs: [semgrep, trivy]
     runs-on: ubuntu-latest
@@ -83,7 +107,7 @@ jobs:
           echo "Semgrep Critical/High: $S"
           echo "Trivy Critical/High:   $T"
           if [ "$S" -gt 0 ] || [ "$T" -gt 0 ]; then
-            echo "RELEASE BLOCKED - fix the issues in DefectDojo, then push again."
+            echo "NOT READY FOR RELEASE - fix the issues in DefectDojo, then scan again."
             exit 1
           fi
-          echo "RELEASE PASSED"
+          echo "READY FOR RELEASE"
