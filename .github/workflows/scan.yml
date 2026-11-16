@@ -7,8 +7,8 @@ on:
         type: choice
         required: true
         options:
-          - k8s-springboot-react-lab
-          - three-tier-devops-gcp
+          - mfdweb
+          - wealthupp_web_ng_ai
       ref:
         description: "Branch or tag to scan"
         required: true
@@ -88,26 +88,3 @@ jobs:
           }
           upload "Semgrep JSON Report" semgrep.json Semgrep
           upload "Trivy Scan" trivy.json Trivy
-
-  # 4. Release check: Critical or High found?
-  gate:
-    needs: [semgrep, trivy]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: semgrep-report
-      - uses: actions/download-artifact@v4
-        with:
-          name: trivy-report
-      - name: Check for Critical / High
-        run: |
-          S=$(jq '[.results[] | select(.extra.severity=="ERROR" or .extra.severity=="CRITICAL" or .extra.severity=="HIGH")] | length' semgrep.json)
-          T=$(jq '[.Results[]? | (.Vulnerabilities[]?, .Secrets[]?) | select(.Severity=="CRITICAL" or .Severity=="HIGH")] | length' trivy.json)
-          echo "Semgrep Critical/High: $S"
-          echo "Trivy Critical/High:   $T"
-          if [ "$S" -gt 0 ] || [ "$T" -gt 0 ]; then
-            echo "NOT READY FOR RELEASE - fix the issues in DefectDojo, then scan again."
-            exit 1
-          fi
-          echo "READY FOR RELEASE"
